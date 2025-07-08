@@ -1,11 +1,13 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Point to Raster Conversion Tool with GUI
 Converts point shapefiles to raster datasets for PGA, Richter, Wald, and SA values
 Uses GeoPandas, Rasterio, and SciPy
 
-pip install geopandas pandas rasterio shapely pyproj scipy
+pip install geopandas pandas rasterio shapely pyproj scipy pyogrio
+
+
+Notes when processing:
+- Humihingal na siya pag 5m yung cellsize, 5m cellsize = 25-30gb RAM Usage (most stable)
 """
 
 import tkinter as tk
@@ -20,7 +22,6 @@ import warnings
 from rasterio.mask import mask
 import time
 from datetime import datetime
-from affine import Affine
 
 warnings.filterwarnings('ignore')
 
@@ -30,7 +31,8 @@ REQUIRED_LIBS = {
     'rasterio': 'Rasterio',
     'shapely': 'Shapely',
     'pyproj': 'PyProj',
-    'scipy': 'SciPy'
+    'scipy': 'SciPy',
+    'pyogrio': 'PyOgrio'
 }
 
 MISSING_LIBS = []
@@ -78,9 +80,11 @@ class PointToRasterGUI:
         self.sa_02_cellsize = tk.StringVar(value="0.00027451108")
 
         #Cellsize = refer to cell size of raster reference using GIS softwares
+        # Bohol 9arc Cellsize reference = 0.0025178324
+        # Bohol 5m CellSize = 0.00004556624
 
         # Interpolation method
-        self.interpolation_method = tk.StringVar(value="nearest")
+        self.interpolation_method = tk.StringVar(value="bilinear")
 
         # Field selection toggles
         self.process_pga = tk.BooleanVar(value=True)
@@ -122,6 +126,10 @@ class PointToRasterGUI:
         title_label = ttk.Label(main_frame, text="Point to Raster Conversion",
                                 font=('Arial', 16, 'bold'))
         title_label.grid(row=0, column=0, columnspan=3, pady=(0, 20))
+
+        cred_label = ttk.Label(main_frame, text="by ᜃᜒᜇᜓ K. Almoneda",
+                                font=('Arial', 9, 'italic'))
+        cred_label.grid(row=0, column=2, columnspan=1, pady=(0, 20))
 
         # Input files section
         ttk.Label(main_frame, text="Input Shapefiles:", font=('Arial', 10, 'bold')).grid(
@@ -172,7 +180,7 @@ class PointToRasterGUI:
 
         ttk.Label(interp_frame, text="Method:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
         interp_combo = ttk.Combobox(interp_frame, textvariable=self.interpolation_method, width=12)
-        interp_combo['values'] = ('nearest', 'linear', 'cubic')
+        interp_combo['values'] = ('nearest', 'bilinear', 'cubic')
         interp_combo.grid(row=0, column=1, sticky=tk.W)
 
         # Parameters section
@@ -358,7 +366,7 @@ class PointToRasterGUI:
     def validate_shapefile_structure(self, shapefile):
         """Validate shapefile structure"""
         try:
-            gdf = gpd.read_file(shapefile)
+            gdf = gpd.read_file(shapefile, engine='pyogrio')
 
             # Check if it's a point shapefile
             if not all(gdf.geometry.geom_type == 'Point'):
@@ -416,7 +424,11 @@ class PointToRasterGUI:
             # Interpolate values to grid
             grid_points = np.column_stack([xx.ravel(), yy.ravel()])
 
-            if self.interpolation_method.get() == 'nearest':
+            interp_method = self.interpolation_method.get()
+            if interp_method == "bilinear":
+                interp_method = "linear"
+
+            if interp_method == 'nearest':
                 # Use nearest neighbor interpolation
                 tree = cKDTree(points)
                 distances, indices = tree.query(grid_points)
@@ -424,7 +436,7 @@ class PointToRasterGUI:
             else:
                 # Use scipy griddata for linear/cubic interpolation
                 grid_values = griddata(points, values, grid_points,
-                                       method=self.interpolation_method.get(),
+                                       method=interp_method,
                                        fill_value=np.nan)
 
             # Reshape to grid
@@ -452,7 +464,7 @@ class PointToRasterGUI:
             # Apply clipping if shapefile is specified
             if self.clip_shapefile_path.get():
                 try:
-                    clip_gdf = gpd.read_file(self.clip_shapefile_path.get())
+                    clip_gdf = gpd.read_file(self.clip_shapefile_path.get(), engine="pyogrio")
 
                     # Ensure the clipping shapefile has the same CRS as the raster
                     if clip_gdf.crs != gdf.crs:
@@ -542,7 +554,7 @@ class PointToRasterGUI:
                     self.log_message(f"  Available fields: {', '.join(available_fields)}")
 
                     # Read shapefile
-                    gdf = gpd.read_file(shapefile)
+                    gdf = gpd.read_file(shapefile, engine="pyogrio")
                     self.log_message(f"  Loaded {len(gdf)} points from shapefile")
 
                     # Get base name for output rasters
@@ -593,8 +605,8 @@ def main():
     app = PointToRasterGUI(root)
 
     # Set window size and center it
-    width = 850
-    height = 800
+    width = 650
+    height = 850
     root.geometry(f"{width}x{height}")
 
     # Center the window
