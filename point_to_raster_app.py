@@ -3,9 +3,6 @@ Point to Raster Conversion Tool with GUI
 Converts point shapefiles to raster datasets for PGA, Richter, Wald, and SA values
 Uses GeoPandas, Rasterio, and SciPy
 
-pip install geopandas pandas rasterio shapely pyproj scipy pyogrio
-
-
 Notes when processing:
 - Humihingal na siya pag 5m yung cellsize, 5m cellsize = 25-30gb RAM Usage (most stable)
 """
@@ -86,6 +83,9 @@ class PointToRasterGUI:
         # Interpolation method
         self.interpolation_method = tk.StringVar(value="bilinear")
 
+        self.output_crs = tk.StringVar(value="EPSG:4326")  # Default WGS84
+        self.use_input_crs = tk.BooleanVar(value=True)
+
         # Field selection toggles
         self.process_pga = tk.BooleanVar(value=True)
         self.process_richter = tk.BooleanVar(value=True)
@@ -106,9 +106,6 @@ class PointToRasterGUI:
             messagebox.showerror(
                 "Required Libraries Missing",
                 f"The following libraries are required but not installed:\n{missing_str}\n\n"
-                "Please install them using:\n"
-                "pip install geopandas rasterio scipy shapely pyproj\n\n"
-                "Note: GeoPandas installation may require additional system dependencies."
             )
 
     def setup_ui(self):
@@ -127,9 +124,13 @@ class PointToRasterGUI:
                                 font=('Arial', 16, 'bold'))
         title_label.grid(row=0, column=0, columnspan=3, pady=(0, 20))
 
-        cred_label = ttk.Label(main_frame, text="by ᜃᜒᜇᜓ K. Almoneda",
+        cred_label = ttk.Label(main_frame, text="by ACER-GS",
                                 font=('Arial', 9, 'italic'))
         cred_label.grid(row=0, column=2, columnspan=1, pady=(0, 20))
+
+        #cred_label = ttk.Label(main_frame, text="by ᜃᜒᜇᜓ K. Almoneda",
+        #                        font=('Arial', 9, 'italic'))
+        #cred_label.grid(row=0, column=2, columnspan=1, pady=(0, 20))
 
         # Input files section
         ttk.Label(main_frame, text="Input Shapefiles:", font=('Arial', 10, 'bold')).grid(
@@ -176,12 +177,48 @@ class PointToRasterGUI:
 
         # Interpolation method section
         interp_frame = ttk.LabelFrame(main_frame, text="Interpolation Method", padding="10")
-        interp_frame.grid(row=5, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
+        interp_frame.grid(row=5, column=0, columnspan=1, sticky=(tk.W, tk.E), pady=(0, 10), padx=(0, 5))
 
         ttk.Label(interp_frame, text="Method:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
         interp_combo = ttk.Combobox(interp_frame, textvariable=self.interpolation_method, width=12)
         interp_combo['values'] = ('nearest', 'bilinear', 'cubic')
         interp_combo.grid(row=0, column=1, sticky=tk.W)
+
+        # CRS selection section
+        crs_frame = ttk.LabelFrame(main_frame, text="Coordinate Reference System", padding="10")
+        crs_frame.grid(row=5, column=1, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        crs_frame.columnconfigure(1, weight=1)
+        # Radio buttons for CRS options
+        ttk.Radiobutton(crs_frame, text="Use input shapefile CRS",
+                        variable=self.use_input_crs, value=True).grid(
+            row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+        ttk.Radiobutton(crs_frame, text="Use custom CRS:",
+                        variable=self.use_input_crs, value=False).grid(
+            row=1, column=0, sticky=tk.W, padx=(0, 5))
+        # CRS entry field
+        self.crs_entry = ttk.Entry(crs_frame, textvariable=self.output_crs, width=15)
+        self.crs_entry.grid(row=1, column=1, sticky=tk.W, padx=(5, 0))
+        # Common CRS dropdown
+        ttk.Label(crs_frame, text="Common CRS:").grid(row=2, column=0, sticky=tk.W, pady=(5, 0))
+        crs_combo = ttk.Combobox(crs_frame, width=40, state="readonly")
+        crs_combo['values'] = (
+            'EPSG:4326 - WGS84 (Geographic)',
+            'EPSG:3857 - Web Mercator',
+            'EPSG:32651 - UTM Zone 51N (Philippines)',
+            'EPSG:32652 - UTM Zone 52N (Philippines)',
+            'EPSG:3123 - PRS92 / Philippines Zone I',
+            'EPSG:3124 - PRS92 / Philippines Zone II',
+            'EPSG:3125 - PRS92 / Philippines Zone III'
+        )
+        crs_combo.grid(row=2, column=1, sticky=tk.W, pady=(5, 0))
+        # Bind combobox selection to update CRS entry
+        def on_crs_select(event):
+            selected = crs_combo.get()
+            if selected:
+                epsg_code = selected.split(' - ')[0]
+                self.output_crs.set(epsg_code)
+                self.use_input_crs.set(False)
+        crs_combo.bind('<<ComboboxSelected>>', on_crs_select)
 
         # Parameters section
         params_frame = ttk.LabelFrame(main_frame, text="Value Fields & Cell Sizes", padding="10")
@@ -266,7 +303,7 @@ class PointToRasterGUI:
         self.process_button.grid(row=8, column=0, columnspan=3, pady=(0, 20))
 
         # Progress bar
-        self.progress = ttk.Progressbar(main_frame, mode='indeterminate')
+        self.progress = ttk.Progressbar(main_frame, mode='determinate')
         self.progress.grid(row=9, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
 
         # Log output
@@ -361,6 +398,17 @@ class PointToRasterGUI:
                 messagebox.showerror("Error", "Clipping shapefile does not exist.")
                 return False
 
+        # Validate CRS if custom CRS is selected
+        if not self.use_input_crs.get():
+            crs_code = self.output_crs.get().strip()
+            if not crs_code:
+                messagebox.showerror("Error", "Please specify a CRS or select 'Use input shapefile CRS'.")
+                return False
+
+            # Basic CRS format validation
+            if not (crs_code.startswith('EPSG:') or crs_code.startswith('PROJ:')):
+                messagebox.showwarning("Warning", "CRS should typically start with 'EPSG:' or 'PROJ:'")
+
         return True
 
     def validate_shapefile_structure(self, shapefile):
@@ -397,6 +445,20 @@ class PointToRasterGUI:
     def create_raster_from_points(self, gdf, value_field, cell_size, output_path):
         """Create raster from point data using interpolation"""
         try:
+            # Handle CRS transformation
+            original_crs = gdf.crs
+
+            if not self.use_input_crs.get():
+                # User wants custom CRS
+                try:
+                    target_crs = self.output_crs.get().strip()
+                    if target_crs and target_crs != str(original_crs):
+                        self.log_message(f"    Transforming from {original_crs} to {target_crs}")
+                        gdf = gdf.to_crs(target_crs)
+                except Exception as e:
+                    self.log_message(f"    Warning: CRS transformation failed - {e}")
+                    self.log_message(f"    Using original CRS: {original_crs}")
+
             # Get bounds
             bounds = gdf.total_bounds
 
@@ -527,7 +589,15 @@ class PointToRasterGUI:
         """Process the shapefiles"""
         self.processing = True
         self.process_button.config(state='disabled')
-        self.progress.start()
+
+        # Calculate total steps for the progress bar (files × selected fields per file)
+        field_flags = [
+            self.process_pga.get(), self.process_richter.get(),
+            self.process_wald.get(), self.process_sa_1.get(), self.process_sa_02.get()
+        ]
+        fields_selected = sum(field_flags)
+        total_steps = len(self.input_shapefiles) * fields_selected
+        self.progress.config(mode='determinate', maximum=total_steps, value=0)
 
         try:
             self.log_message(f"{self.timestamp()} Starting point to raster conversion...")
@@ -577,6 +647,8 @@ class PointToRasterGUI:
                                                        f"{base_name}_{output_suffix}_raster.tif")
                             self.create_raster_from_points(gdf, field_name, float(cell_size), output_path)
                             self.log_message(f"    Created: {base_name}_{output_suffix}_raster.tif")
+                            self.progress.step()
+                            self.root.update_idletasks()
 
                 except Exception as e:
                     self.log_message(f"  Error processing {os.path.basename(shapefile)}: {str(e)}")
@@ -597,6 +669,7 @@ class PointToRasterGUI:
             self.processing = False
             self.process_button.config(state='normal')
             self.progress.stop()
+            #self.progress['value'] = 0
 
 
 def main():
@@ -617,7 +690,6 @@ def main():
     root.geometry(f"{width}x{height}+{x}+{y}")
 
     root.mainloop()
-
 
 if __name__ == '__main__':
     main()
