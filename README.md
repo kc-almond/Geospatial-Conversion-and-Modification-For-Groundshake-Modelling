@@ -1,5 +1,7 @@
 # Point to Raster for Groundshake Modelling
 
+ON GOING CHANGES - Addition of Tool and improvements of GUI
+
 A comprehensive GUI-based Python application for converting point shapefiles into continuous raster surfaces, specifically designed for seismic hazard analysis and groundshake modeling. Transform discrete seismic measurement points into interpolated raster datasets for advanced spatial analysis.
 
 ## 🌟 Features
